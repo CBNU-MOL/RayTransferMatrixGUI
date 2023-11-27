@@ -12,6 +12,18 @@ pip install -r requirement.txt
 ## 1-2. 필요 optics data 추가
 ![image](https://github.com/CBNU-MOL/RayTransferMatrixGUI/assets/76804251/b8d8c720-a192-454e-9334-19ff1112eb0b)
 
+```
+ "LASESF-39": {             # optics name
+        "n_air": 1.0,       # 공기중 굴절률
+        "n_N_BK7": 1.5106,  # Index of Refraction
+        "rad_curv": 38.6,   # Radius of Curvature      
+        "c_thick": 4.1,     # Center Thickness
+        "f": 74.8,          # Focal Lenght
+         "fb": 72.0         # Back Focal Lenght
+     }
+```
+![image](https://github.com/CBNU-MOL/RayTransferMatrixGUI/assets/76804251/9b81cb2c-fa09-4179-8c49-560dde8b6281)
+
 ## 1-3. 프로그램 실행
 ```
 python RayTransferMatrixGui.py
