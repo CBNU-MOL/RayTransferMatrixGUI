@@ -1,5 +1,5 @@
 import sys
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QScrollArea,QSlider,QRadioButton,QComboBox,QLineEdit,QCheckBox
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QScrollArea,QSlider,QRadioButton,QComboBox,QLineEdit,QCheckBox,QFrame
 from PyQt5.QtGui import QDoubleValidator
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -17,12 +17,8 @@ class ClickWidget(QWidget):
     def __init__(self, update_total_widgets_callback,optics_data):
         super().__init__()
         self.optics_data = optics_data
-        self.initUI()
-        self.update_total_widgets_callback = update_total_widgets_callback
-
-    def initUI(self):
         self.first_key =  next(iter(self.optics_data))
-        self.first_data = self.optics_data[self.first_key]
+        self.first_data = self.optics_data[self.first_key]  
         self.n_air =  self.first_data["n_air"]
         self.n_N_BK7 =  self.first_data["n_N_BK7"]
         self.rad_curv = self.first_data["rad_curv"]
@@ -31,6 +27,19 @@ class ClickWidget(QWidget):
         self.fb =  self.first_data["fb"]
         self.isfilp = False
         self.distance = 0
+        self.initUI()
+        self.update_total_widgets_callback = update_total_widgets_callback
+
+    def initUI(self):
+
+        # qframe 추가
+        self.frame = QFrame(self)
+        self.frame.setFrameStyle(QFrame.Box | QFrame.Plain)
+        self.frame.setLineWidth(1)
+        
+        
+        self.main_layout = QVBoxLayout()
+       
 
         # 드롭박스 
         self.optics_dropdown = QComboBox()
@@ -71,10 +80,19 @@ class ClickWidget(QWidget):
         layout.addLayout(layout_top)
         layout.addLayout(layout_btm)
 
+        self.main_layout.addLayout(layout)
 
 
+        self.frame.setLayout(self.main_layout)
+        top_level_layout = QVBoxLayout(self)  # Pass self to set the layout for the widget
+        top_level_layout.addWidget(self.frame) 
 
-        self.setLayout(layout)
+
+        # 레이아웃 적용
+        
+
+
+        
         
 
     def delete_widget(self):
@@ -126,6 +144,12 @@ class MainWidget(QWidget):
         scroll_area = QScrollArea(self)
         scroll_area.setWidget(self.scroll_widget)
         scroll_area.setWidgetResizable(True)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+
+        # QScrollArea의 내용들이 항상 위로 정렬되고 최소 크기를 갖도록 설정
+        self.scroll_layout.setAlignment(Qt.AlignTop)
+        
+
 
         control_layout = QVBoxLayout()
         button_layout = QHBoxLayout()
@@ -192,11 +216,14 @@ class MainWidget(QWidget):
         radio_layout = QHBoxLayout()
         self.radio_point = QRadioButton("Point Light Source")
         self.radio_laser = QRadioButton("Laser")
+        self.total_mode = QRadioButton("Total Mode")
         self.radio_point.setChecked(True)  # 기본값 설정
         self.radio_point.toggled.connect(self.update_plot)
         self.radio_laser.toggled.connect(self.update_plot)
+        self.total_mode.toggled.connect(self.update_plot)
         radio_layout.addWidget(self.radio_point)
         radio_layout.addWidget(self.radio_laser)
+        radio_layout.addWidget(self.total_mode)
         control_layout.addLayout(radio_layout)
 
         # 그래프 캔버스 설정
@@ -277,33 +304,94 @@ class MainWidget(QWidget):
         # thick_lens (n_ait , n_N_BK7, rad_curv, -np.inf , c_thick)   오른쪽이 평면인 
 
         if self.radio_laser.isChecked():
-            # 레이저
-            for j in [(-0.25 + start_point,'g'),(0.25 + start_point,'g')]: #beam start point
-                for i in [start_angle]: #beam angle (deg)
-                    p = [rvec(j[0],np.deg2rad(i))] # 시작 위치 및 각도
+            self.draw_laser(start_point,start_angle)
 
-                    # # Calculations optics 갯수만큼
-                    for  i ,optics in enumerate(self.optics_data_list) :
-
-                        p.append(p[-1].propagate(optics["f"] + self.optics_data_list_distance[i]))
-
-                        if self.optics_data_list_flip[i]:
-                            p.append(p[-1].thick_lens(optics["n_air"], optics["n_N_BK7"], optics["rad_curv"],-np.inf, optics["c_thick"]))
-                        else:
-                            p.append(p[-1].thick_lens(optics["n_air"], optics["n_N_BK7"], np.inf, -optics["rad_curv"], optics["c_thick"]))
-
-
-                        p.append(p[-1].propagate(optics["fb"]))
-
-                    z = np.linspace(p[0].z,p[-1].z,100)
-                    x = np.interp(z,[rv.z for rv in p],[rv.x for rv in p])
-                    self.ax.plot(z,x,j[1])
-
+        elif self.radio_point.isChecked():
+            self.draw_point_light_source(start_point,start_angle)
 
         else:
-            # 점광원
-            for j in [(-0.25 + start_point,'g'),(0.25 + start_point,'g')]: #beam start point
-                for i in [-start_angle, start_angle]:  # 광선의 각도
+            self.draw_laser(0,0)
+            self.draw_qunatum(start_point,start_angle)
+            
+             
+        # 선 그리기 렌즈선, 
+        vertical_lines = []
+        lens_lins = []
+        temp = 0
+        line_pos = np.zeros(2)
+        for  i ,optics in enumerate(self.optics_data_list) : 
+            for k, j in enumerate([0, optics["f"] + self.optics_data_list_distance[i], optics["c_thick"],optics["fb"]]):
+                line_pos += j
+                
+                # lens line 파란색으로 그리기
+                if k == 1 or k ==2:
+                    self.ax.plot(line_pos,[-25.4/2,25.4/2],'b')
+
+                    # lens 이름 위치 정하기 1
+                    if k == 1:
+                        temp += line_pos[0]
+                    
+                    # lens 이름 위치 정하기 2
+                    if k == 2: 
+                        temp += j/2
+                        vertical_lines.append(round(temp))
+                        lens_lins.append(round(temp))
+                        temp = 0
+
+
+                else:
+
+
+                    self.ax.plot(line_pos,[-25.4/2,25.4/2],'k')
+                    vertical_lines.append(round(line_pos[0]))
+
+        self.ax.set_xticks(vertical_lines)
+        self.ax.set_title("Ray Transfer Plot (right side is flat)")
+
+        # 렌즈 위치 라벨링 하기
+        for i , pos in enumerate(lens_lins):
+            self.ax.text(pos, self.ax.get_ylim()[0] - (self.ax.get_ylim()[1] - self.ax.get_ylim()[0]) * 0.1,
+                        self.optics_data_list_first_key[i], fontsize=15, color='black', ha='center')
+
+        self.ax.axhline(0 , color = 'gray' , linestyle = 'dashed' , linewidth = 1)
+
+        self.canvas.draw()
+
+
+    def toggle_source(self):
+        if self.source_type == 'point light source':
+            self.source_type = 'laser'
+        else:
+            self.source_type = 'point light source'
+        self.update_plot()
+
+    def draw_laser(self,start_point,start_angle):
+        # 레이저
+        for j in [(-0.25 + start_point,'g'),(0.25 + start_point,'g')]: #beam start point
+            for i in [start_angle]: #beam angle (deg)
+                p = [rvec(j[0],np.deg2rad(i))] # 시작 위치 및 각도
+
+                # # Calculations optics 갯수만큼
+                for  i ,optics in enumerate(self.optics_data_list) :
+
+                    p.append(p[-1].propagate(optics["f"] + self.optics_data_list_distance[i]))
+
+                    if self.optics_data_list_flip[i]:
+                        p.append(p[-1].thick_lens(optics["n_air"], optics["n_N_BK7"], optics["rad_curv"],-np.inf, optics["c_thick"]))
+                    else:
+                        p.append(p[-1].thick_lens(optics["n_air"], optics["n_N_BK7"], np.inf, -optics["rad_curv"], optics["c_thick"]))
+
+
+                    p.append(p[-1].propagate(optics["fb"]))
+
+                z = np.linspace(p[0].z,p[-1].z,100)
+                x = np.interp(z,[rv.z for rv in p],[rv.x for rv in p])
+                self.ax.plot(z,x,j[1])
+
+    def draw_point_light_source(self,start_point,start_angle):
+        # 점광원
+            for j in [( start_point,'y')]: #,beam start point
+                for i in np.linspace(-start_angle,start_angle,2):  # 광선의 각도
                     p = [rvec(j[0],np.deg2rad(i))]  # 시작 위치 및 각도
 
                     for  i ,optics in enumerate(self.optics_data_list) :
@@ -323,54 +411,102 @@ class MainWidget(QWidget):
                     x = np.interp(z,[rv.z for rv in p],[rv.x for rv in p])
                     self.ax.plot(z,x,j[1])
 
-             
-        # 선 그리기 렌즈선, 
-        vertical_lines = []
-        lens_lins = []
-        temp = 0
-        line_pos = np.zeros(2)
-        for  i ,optics in enumerate(self.optics_data_list) : 
-            for k, j in enumerate([0, optics["f"] + self.optics_data_list_distance[i], optics["c_thick"],optics["fb"]]):
-                line_pos += j
+
+    def draw_qunatum(self,start_point,start_angle):
+        # start_point를 가지는 두개의 빔 생성
+        # 각각의 빔에 대해서 start_angle만큼의 각도를 가지는 빔 생성
+        # 생성된 각각의 빔에서 start_angle 만큼 각도를 가지는 밤을 또 생성
+        # 생성된 빔들을 각각의 optics에 대해서 계산
+        # 계산된 결과를 그래프에 표시
+
+        for j in [( 0,'r')]:
+            for i in [-start_angle]:
+                    # k 좌표를 기준으로 start_point만큼 떨어진 각도에 빔 생성
+
+                    p = [rvec(j[0],np.deg2rad(i))]
+
+                    for  i ,optics in enumerate(self.optics_data_list) :
+
+                        p.append(p[-1].propagate(optics["f"] + self.optics_data_list_distance[i]))
+
+                        if self.optics_data_list_flip[i]:
+                            p.append(p[-1].thick_lens(optics["n_air"], optics["n_N_BK7"], optics["rad_curv"],-np.inf, optics["c_thick"]))
+                        else:
+                            p.append(p[-1].thick_lens(optics["n_air"], optics["n_N_BK7"], np.inf, -optics["rad_curv"], optics["c_thick"]))
+
+
+                        p.append(p[-1].propagate(optics["fb"]))
+
+                    z = np.linspace(p[0].z,p[-1].z,100)
+                    x = np.interp(z,[rv.z for rv in p],[rv.x for rv in p])
+                    self.ax.plot(z,x,j[1])
+
+        for j in [( 0,'r--')]:
+            for k in [start_angle]:
+                for i in [-k-start_point,-k + start_point]:
+                    p = [rvec(j[0],np.deg2rad(i))]
+
+                    for  i ,optics in enumerate(self.optics_data_list) :
+
+                        p.append(p[-1].propagate(optics["f"] + self.optics_data_list_distance[i]))
+
+                        if self.optics_data_list_flip[i]:
+                            p.append(p[-1].thick_lens(optics["n_air"], optics["n_N_BK7"], optics["rad_curv"],-np.inf, optics["c_thick"]))
+                        else:
+                            p.append(p[-1].thick_lens(optics["n_air"], optics["n_N_BK7"], np.inf, -optics["rad_curv"], optics["c_thick"]))
+
+
+                        p.append(p[-1].propagate(optics["fb"]))
+
+                    z = np.linspace(p[0].z,p[-1].z,100)
+                    x = np.interp(z,[rv.z for rv in p],[rv.x for rv in p])
+                    # -- 모양 plot
+                    self.ax.plot(z,x,j[1])
+
+        for j in [( 0,'b')]:
+            for i in [start_angle]:
+                    # k 좌표를 기준으로 start_point만큼 떨어진 각도에 빔 생성
+
+                    p = [rvec(j[0],np.deg2rad(i))]
+
+                    for  i ,optics in enumerate(self.optics_data_list) :
+
+                        p.append(p[-1].propagate(optics["f"] + self.optics_data_list_distance[i]))
+
+                        if self.optics_data_list_flip[i]:
+                            p.append(p[-1].thick_lens(optics["n_air"], optics["n_N_BK7"], optics["rad_curv"],-np.inf, optics["c_thick"]))
+                        else:
+                            p.append(p[-1].thick_lens(optics["n_air"], optics["n_N_BK7"], np.inf, -optics["rad_curv"], optics["c_thick"]))
+
+
+                        p.append(p[-1].propagate(optics["fb"]))
+
+                    z = np.linspace(p[0].z,p[-1].z,100)
+                    x = np.interp(z,[rv.z for rv in p],[rv.x for rv in p])
+                    self.ax.plot(z,x,j[1])
+
+        for j in [( 0,'b--')]:
+            for k in [start_angle]:
+                for i in [-start_point, start_point]:
+                    p = [rvec(j[0],(np.deg2rad(k) - np.deg2rad(i)))]
+
+                    for  i ,optics in enumerate(self.optics_data_list) :
+
+                        p.append(p[-1].propagate(optics["f"] + self.optics_data_list_distance[i]))
+
+                        if self.optics_data_list_flip[i]:
+                            p.append(p[-1].thick_lens(optics["n_air"], optics["n_N_BK7"], optics["rad_curv"],-np.inf, optics["c_thick"]))
+                        else:
+                            p.append(p[-1].thick_lens(optics["n_air"], optics["n_N_BK7"], np.inf, -optics["rad_curv"], optics["c_thick"]))
+
+
+                        p.append(p[-1].propagate(optics["fb"]))
+
+                    z = np.linspace(p[0].z,p[-1].z,100)
+                    x = np.interp(z,[rv.z for rv in p],[rv.x for rv in p])
+                    # -- 모양 plot
+                    self.ax.plot(z,x,j[1])
                 
-                if k == 1 or k ==2:
-                    self.ax.plot(line_pos,[-25.4/2,25.4/2],'b')
-
-                    if k == 1:
-                        temp += line_pos[0]
-                    
-                    if k == 2: 
-                        temp += j/2
-                        vertical_lines.append(round(temp))
-                        lens_lins.append(round(temp))
-                        temp = 0
-
-
-                else:
-
-
-                    self.ax.plot(line_pos,[-25.4/2,25.4/2],'k')
-                    vertical_lines.append(round(line_pos[0]))
-
-        self.ax.set_xticks(vertical_lines)
-        self.ax.set_title("Ray Transfer Plot")
-
-        # 렌즈 위치 라벨링 하기
-        for i , pos in enumerate(lens_lins):
-            self.ax.text(pos, self.ax.get_ylim()[0] - (self.ax.get_ylim()[1] - self.ax.get_ylim()[0]) * 0.1,
-                        self.optics_data_list_first_key[i], fontsize=15, color='black', ha='center')
-
-        self.ax.axhline(0 , color = 'gray' , linestyle = 'dashed' , linewidth = 1)
-
-        self.canvas.draw()
-
-
-    def toggle_source(self):
-        if self.source_type == 'point light source':
-            self.source_type = 'laser'
-        else:
-            self.source_type = 'point light source'
-        self.update_plot()
 
 def main():
     app = QApplication(sys.argv)
