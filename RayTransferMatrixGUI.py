@@ -1,5 +1,5 @@
 import sys
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QScrollArea,QSlider,QRadioButton,QComboBox,QLineEdit,QCheckBox,QFrame,QStatusBar
+from PyQt5.QtWidgets import *
 from PyQt5.QtGui import QDoubleValidator
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -129,7 +129,7 @@ class ClickWidget(QWidget):
         self.update_total_widgets_callback()
         
 
-class MainWidget(QWidget):
+class MainWidget(QMainWindow):
     def __init__(self):
         super().__init__()
         self.optics_data_list = []
@@ -139,6 +139,9 @@ class MainWidget(QWidget):
         self.initUI()
 
     def initUI(self):
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+
         self.scroll_widget = QWidget()
         self.scroll_layout = QVBoxLayout(self.scroll_widget)
 
@@ -240,7 +243,7 @@ class MainWidget(QWidget):
         optics_layout.addWidget(scroll_area)
         optics_layout.addLayout(button_layout)
 
-        main_layout = QHBoxLayout()
+        main_layout = QHBoxLayout(central_widget)   
 
         main_layout.addLayout(plot_layout,3)
         main_layout.addLayout(optics_layout,1)
@@ -249,12 +252,18 @@ class MainWidget(QWidget):
         self.setLayout(main_layout)
         self.resize(2400, 1200)  # 
         self.update_total_widgets()
+        
 
 
         # status bar 추가
         self.statuslabel = QLabel()
         control_layout.addWidget(self.statuslabel)
         self.canvas.mpl_connect('motion_notify_event', self.on_mouse_move)
+
+        self.statusBar = self.statusBar()  # 상태 바 초기화
+        self.status_message_label = QLabel()  # 상태 바에 사용할 QLabel 생성
+        self.statusBar.addWidget(self.status_message_label)  # QLabel을 상태 바에 추가
+
 
     def add_click_widget(self):
         new_widget = ClickWidget( self.update_total_widgets, optics_data)
@@ -397,7 +406,7 @@ class MainWidget(QWidget):
 
     def draw_point_light_source(self,start_point,start_angle):
         # 점광원
-            for j in [( start_point,'y')]: #,beam start point
+            for j in [( start_point - 1,'r'),( start_point,'g'),( start_point + 1,'b')]: #,beam start point
                 for i in np.linspace(-start_angle,start_angle,2):  # 광선의 각도
                     p = [rvec(j[0],np.deg2rad(i))]  # 시작 위치 및 각도
 
@@ -515,13 +524,91 @@ class MainWidget(QWidget):
                     self.ax.plot(z,x,j[1])
 
     # 마우스 이동 이벤트 처리기 메소드
+    # def on_mouse_move(self, event):
+    #     if event.inaxes:
+    #         # 마우스 위치 정보 업데이트
+    #         self.statuslabel.setText(f"X: {event.xdata:.2f}, Y: {event.ydata:.2f}")
+
+    #     else:
+    #         self.statuslabel.setText("")
     def on_mouse_move(self, event):
         if event.inaxes:
-            # 마우스 위치 정보 업데이트
-            self.statuslabel.setText(f"X: {event.xdata:.2f}, Y: {event.ydata:.2f}")
+            # X 좌표에 따른 Y 좌표 값들 찾기
+            y_values = []
+            line_styles = []
+            for line in self.ax.get_lines():
+                x_data, y_data = line.get_data()
+                if min(x_data) <= event.xdata <= max(x_data):  # 마우스 위치가 선의 X 범위 내에 있으면
+                    # 선의 Y 좌표들을 찾아서 y_values에 추가
+                    y_values.extend(np.interp([event.xdata], x_data, y_data).tolist())
+                    line_styles.append((line.get_color(),line.get_linestyle()))
 
+            # Y 좌표의 최대값과 최소값을 이용해 광선의 너비 계산
+            widths_by_style =  self.calculate_widths_by_style(y_values, line_styles)
+            status_message =  self.set_status_message(widths_by_style)
+            self.statuslabel.setText(f"X: {event.xdata:.2f},X: {event.ydata:.2f}")
+            self.status_message_label.setText(status_message)
+            self.status_message_label.setTextFormat(Qt.TextFormat.RichText)
+            
         else:
+            # 마우스가 그래프 밖으로 나갔을 때
             self.statuslabel.setText("")
+            self.status_message_label.setText("")
+
+    def calculate_widths_by_style(self, y_values, line_styles):
+        # 광선 스타일을 기준으로 광선 인덱스 그룹화
+        style_groups = {}
+        for index, style in enumerate(line_styles):
+            style_key = tuple(style)  # 스타일 정보를 튜플로 변환하여 해시 가능하게 만듬
+            if style_key in style_groups:
+                style_groups[style_key].append(index)
+            else:
+                style_groups[style_key] = [index]
+
+        # 각 스타일 그룹에 대해 너비 계산
+        widths_by_style = {}
+        for style_key, group_indices in style_groups.items():
+            # 해당 스타일 그룹의 모든 Y 값을 추출
+            group_y_values = [y_values[i] for i in group_indices]
+            # 최대와 최소 Y 값 차이로 너비를 계산
+            width = max(group_y_values) - min(group_y_values)
+            widths_by_style[style_key] = round(width,3)
+
+
+        return widths_by_style
+    
+    def set_status_message(self, widths_by_style):
+        # 상태 메시지를 위한 HTML 파트 초기화
+        status_message_parts = []
+
+        # 스타일과 너비 데이터를 반복 처리
+        for style, width in widths_by_style.items():
+            # 스타일 튜플에서 색상과 선 스타일 정보 추출
+            color, line_style = style
+
+            # 색상을 HTML 색상 코드로 변환
+            color_html = self.convert_color_to_html(color)
+
+            # 선 스타일에 따라 HTML 메시지 구성
+            style_html = f"<span style='color: {color_html};'>{line_style}</span>"
+
+            # HTML 파트 추가
+            status_message_parts.append(f"{style_html} : {width:.3f}")
+
+        # HTML 파트들을 쉼표로 구분하여 하나의 문자열로 결합
+        final_message = ', '.join(status_message_parts)
+
+        # 상태 바에 최종 메시지 설정
+        return final_message
+
+    def convert_color_to_html(self, color):
+        # 색상 정보를 HTML 색상 코드로 변환
+        if isinstance(color, tuple):  # RGBA 형식
+            return f'rgba({int(color[0]*255)}, {int(color[1]*255)}, {int(color[2]*255)}, {color[3]})'
+        else:  # 'r', 'g', 'b' 등의 문자열 형식
+            return color
+    
+
        
 
 def main():
