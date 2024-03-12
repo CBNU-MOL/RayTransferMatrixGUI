@@ -1,5 +1,5 @@
 import sys
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QScrollArea,QSlider,QRadioButton,QComboBox,QLineEdit,QCheckBox,QFrame
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QScrollArea,QSlider,QRadioButton,QComboBox,QLineEdit,QCheckBox,QFrame,QStatusBar
 from PyQt5.QtGui import QDoubleValidator
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -88,7 +88,8 @@ class ClickWidget(QWidget):
         top_level_layout.addWidget(self.frame) 
 
 
-        # 레이아웃 적용
+        # # 레이아웃 적용
+     
         
 
 
@@ -248,6 +249,12 @@ class MainWidget(QWidget):
         self.setLayout(main_layout)
         self.resize(2400, 1200)  # 
         self.update_total_widgets()
+
+
+        # status bar 추가
+        self.statuslabel = QLabel()
+        control_layout.addWidget(self.statuslabel)
+        self.canvas.mpl_connect('motion_notify_event', self.on_mouse_move)
 
     def add_click_widget(self):
         new_widget = ClickWidget( self.update_total_widgets, optics_data)
@@ -506,7 +513,16 @@ class MainWidget(QWidget):
                     x = np.interp(z,[rv.z for rv in p],[rv.x for rv in p])
                     # -- 모양 plot
                     self.ax.plot(z,x,j[1])
-                
+
+    # 마우스 이동 이벤트 처리기 메소드
+    def on_mouse_move(self, event):
+        if event.inaxes:
+            # 마우스 위치 정보 업데이트
+            self.statuslabel.setText(f"X: {event.xdata:.2f}, Y: {event.ydata:.2f}")
+
+        else:
+            self.statuslabel.setText("")
+       
 
 def main():
     app = QApplication(sys.argv)
